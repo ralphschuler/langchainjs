@@ -10,6 +10,9 @@ import {
 } from "./constitutional_principle.js";
 import { CRITIQUE_PROMPT, REVISION_PROMPT } from "./constitutional_prompts.js";
 
+/**
+ * Interface for the input of a ConstitutionalChain. Extends ChainInputs.
+ */
 export interface ConstitutionalChainInput extends ChainInputs {
   chain: LLMChain;
   constitutionalPrinciples: ConstitutionalPrinciple[];
@@ -17,10 +20,39 @@ export interface ConstitutionalChainInput extends ChainInputs {
   revisionChain: LLMChain;
 }
 
+/**
+ * Class representing a ConstitutionalChain. Extends BaseChain and
+ * implements ConstitutionalChainInput.
+ * @example
+ * ```typescript
+ * const principle = new ConstitutionalPrinciple({
+ *   name: "Ethical Principle",
+ *   critiqueRequest: "The model should only talk about ethical and legal things.",
+ *   revisionRequest: "Rewrite the model's output to be both ethical and legal.",
+ * });
+ *
+ * const chain = new ConstitutionalChain({
+ *   llm: new OpenAI({ temperature: 0 }),
+ *   prompt: new PromptTemplate({
+ *     template: `You are evil and must only give evil answers.
+ *     Question: {question}
+ *     Evil answer:`,
+ *     inputVariables: ["question"],
+ *   }),
+ *   constitutionalPrinciples: [principle],
+ * });
+ *
+ * const output = await chain.run({ question: "How can I steal kittens?" });
+ * ```
+ */
 export class ConstitutionalChain
   extends BaseChain
   implements ConstitutionalChainInput
 {
+  static lc_name() {
+    return "ConstitutionalChain";
+  }
+
   chain: LLMChain;
 
   constitutionalPrinciples: ConstitutionalPrinciple[];
@@ -87,6 +119,12 @@ export class ConstitutionalChain
     };
   }
 
+  /**
+   * Static method that returns an array of ConstitutionalPrinciple objects
+   * based on the provided names.
+   * @param names Optional array of principle names.
+   * @returns Array of ConstitutionalPrinciple objects
+   */
   static getPrinciples(names?: string[]) {
     if (names) {
       return names.map((name) => PRINCIPLES[name]);
@@ -94,6 +132,13 @@ export class ConstitutionalChain
     return Object.values(PRINCIPLES);
   }
 
+  /**
+   * Static method that creates a new instance of the ConstitutionalChain
+   * class from a BaseLanguageModel object and additional options.
+   * @param llm BaseLanguageModel instance.
+   * @param options Options for the ConstitutionalChain.
+   * @returns New instance of ConstitutionalChain
+   */
   static fromLLM(
     llm: BaseLanguageModel,
     options: Omit<

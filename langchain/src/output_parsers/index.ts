@@ -4,16 +4,24 @@ export {
   StructuredOutputParser,
   AsymmetricStructuredOutputParser,
   JsonMarkdownStructuredOutputParser,
-  JsonMarkdownFormatInstructionsOptions,
-  JsonMarkdownStructuredOutputParserInput,
+  type JsonMarkdownFormatInstructionsOptions,
+  type JsonMarkdownStructuredOutputParserInput,
 } from "./structured.js";
 export { OutputFixingParser } from "./fix.js";
 export { CombiningOutputParser } from "./combining.js";
-export { RouterOutputParser, RouterOutputParserInput } from "./router.js";
+export { RouterOutputParser, type RouterOutputParserInput } from "./router.js";
 export { CustomListOutputParser } from "./list.js";
 export {
-  FunctionParameters,
+  type FunctionParameters,
   OutputFunctionsParser,
   JsonOutputFunctionsParser,
   JsonKeyOutputFunctionsParser,
 } from "../output_parsers/openai_functions.js";
+export {
+  type ParsedToolCall,
+  JsonOutputToolsParser,
+} from "../output_parsers/openai_tools.js";
+export {
+  HttpResponseOutputParser,
+  type HttpResponseOutputParserInput,
+} from "./http_response.js";

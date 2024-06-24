@@ -58,9 +58,13 @@ type ModelColumns<TModel extends Record<string, unknown>> = {
   [K in keyof TModel]?: true | ColumnSymbol;
 };
 
-type PrismaSqlFilter<TModel extends Record<string, unknown>> = {
+export type PrismaSqlFilter<TModel extends Record<string, unknown>> = {
   [K in keyof TModel]?: {
     equals?: TModel[K];
+    in?: TModel[K][];
+    isNull?: TModel[K];
+    isNotNull?: TModel[K];
+    like?: TModel[K];
     lt?: TModel[K];
     lte?: TModel[K];
     gt?: TModel[K];
@@ -71,6 +75,10 @@ type PrismaSqlFilter<TModel extends Record<string, unknown>> = {
 
 const OpMap = {
   equals: "=",
+  in: "IN",
+  isNull: "IS NULL",
+  isNotNull: "IS NOT NULL",
+  like: "LIKE",
   lt: "<",
   lte: "<=",
   gt: ">",
@@ -92,6 +100,11 @@ type DefaultPrismaVectorStore = PrismaVectorStore<
   PrismaSqlFilter<Record<string, unknown>>
 >;
 
+/**
+ * A specific implementation of the VectorStore class that is designed to
+ * work with Prisma. It provides methods for adding models, documents, and
+ * vectors, as well as for performing similarity searches.
+ */
 export class PrismaVectorStore<
   TModel extends Record<string, unknown>,
   TModelName extends string,
@@ -162,6 +175,11 @@ export class PrismaVectorStore<
     }
   }
 
+  /**
+   * Creates a new PrismaVectorStore with the specified model.
+   * @param db The PrismaClient instance.
+   * @returns An object with create, fromTexts, and fromDocuments methods.
+   */
   static withModel<TModel extends Record<string, unknown>>(db: PrismaClient) {
     function create<
       TPrisma extends PrismaNamespace,
@@ -242,6 +260,11 @@ export class PrismaVectorStore<
     return { create, fromTexts, fromDocuments };
   }
 
+  /**
+   * Adds the specified models to the store.
+   * @param models The models to add.
+   * @returns A promise that resolves when the models have been added.
+   */
   async addModels(models: TModel[]) {
     return this.addDocuments(
       models.map((metadata) => {
@@ -253,6 +276,11 @@ export class PrismaVectorStore<
     );
   }
 
+  /**
+   * Adds the specified documents to the store.
+   * @param documents The documents to add.
+   * @returns A promise that resolves when the documents have been added.
+   */
   async addDocuments(documents: Document<TModel>[]) {
     const texts = documents.map(({ pageContent }) => pageContent);
     return this.addVectors(
@@ -261,6 +289,12 @@ export class PrismaVectorStore<
     );
   }
 
+  /**
+   * Adds the specified vectors to the store.
+   * @param vectors The vectors to add.
+   * @param documents The documents associated with the vectors.
+   * @returns A promise that resolves when the vectors have been added.
+   */
   async addVectors(vectors: number[][], documents: Document<TModel>[]) {
     // table name, column name cannot be parametrised
     // these fields are thus not escaped by Prisma and can be dangerous if user input is used
@@ -279,6 +313,14 @@ export class PrismaVectorStore<
     );
   }
 
+  /**
+   * Performs a similarity search with the specified query.
+   * @param query The query to use for the similarity search.
+   * @param k The number of results to return.
+   * @param _filter The filter to apply to the results.
+   * @param _callbacks The callbacks to use during the search.
+   * @returns A promise that resolves with the search results.
+   */
   async similaritySearch(
     query: string,
     k = 4,
@@ -293,6 +335,15 @@ export class PrismaVectorStore<
     return results.map((result) => result[0]);
   }
 
+  /**
+   * Performs a similarity search with the specified query and returns the
+   * results along with their scores.
+   * @param query The query to use for the similarity search.
+   * @param k The number of results to return.
+   * @param filter The filter to apply to the results.
+   * @param _callbacks The callbacks to use during the search.
+   * @returns A promise that resolves with the search results and their scores.
+   */
   async similaritySearchWithScore(
     query: string,
     k?: number,
@@ -302,6 +353,14 @@ export class PrismaVectorStore<
     return super.similaritySearchWithScore(query, k, filter);
   }
 
+  /**
+   * Performs a similarity search with the specified vector and returns the
+   * results along with their scores.
+   * @param query The vector to use for the similarity search.
+   * @param k The number of results to return.
+   * @param filter The filter to apply to the results.
+   * @returns A promise that resolves with the search results and their scores.
+   */
   async similaritySearchVectorWithScore(
     query: number[],
     k: number,
@@ -359,9 +418,34 @@ export class PrismaVectorStore<
         Object.entries(ops).map(([opName, value]) => {
           // column name, operators cannot be parametrised
           // these fields are thus not escaped by Prisma and can be dangerous if user input is used
+          const opNameKey = opName as keyof typeof OpMap;
           const colRaw = this.Prisma.raw(`"${key}"`);
-          const opRaw = this.Prisma.raw(OpMap[opName as keyof typeof OpMap]);
-          return this.Prisma.sql`${colRaw} ${opRaw} ${value}`;
+          const opRaw = this.Prisma.raw(OpMap[opNameKey]);
+
+          switch (OpMap[opNameKey]) {
+            case OpMap.in: {
+              if (
+                !Array.isArray(value) ||
+                !value.every((v) => typeof v === "string")
+              ) {
+                throw new Error(
+                  `Invalid filter: IN operator requires an array of strings. Received: ${JSON.stringify(
+                    value,
+                    null,
+                    2
+                  )}`
+                );
+              }
+              return this.Prisma.sql`${colRaw} ${opRaw} (${this.Prisma.join(
+                value
+              )})`;
+            }
+            case OpMap.isNull:
+            case OpMap.isNotNull:
+              return this.Prisma.sql`${colRaw} ${opRaw}`;
+            default:
+              return this.Prisma.sql`${colRaw} ${opRaw} ${value}`;
+          }
         })
       ),
       " AND ",
@@ -369,6 +453,14 @@ export class PrismaVectorStore<
     );
   }
 
+  /**
+   * Creates a new PrismaVectorStore from the specified texts.
+   * @param texts The texts to use to create the store.
+   * @param metadatas The metadata for the texts.
+   * @param embeddings The embeddings to use.
+   * @param dbConfig The database configuration.
+   * @returns A promise that resolves with the new PrismaVectorStore.
+   */
   static async fromTexts(
     texts: string[],
     metadatas: object[],
@@ -394,6 +486,13 @@ export class PrismaVectorStore<
     return PrismaVectorStore.fromDocuments(docs, embeddings, dbConfig);
   }
 
+  /**
+   * Creates a new PrismaVectorStore from the specified documents.
+   * @param docs The documents to use to create the store.
+   * @param embeddings The embeddings to use.
+   * @param dbConfig The database configuration.
+   * @returns A promise that resolves with the new PrismaVectorStore.
+   */
   static async fromDocuments(
     docs: Document[],
     embeddings: Embeddings,

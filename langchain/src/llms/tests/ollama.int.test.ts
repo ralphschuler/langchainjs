@@ -1,7 +1,12 @@
 import { test } from "@jest/globals";
 import { Ollama } from "../ollama.js";
+import { PromptTemplate } from "../../prompts/prompt.js";
+import {
+  BytesOutputParser,
+  StringOutputParser,
+} from "../../schema/output_parser.js";
 
-test("test call", async () => {
+test.skip("test call", async () => {
   const ollama = new Ollama({});
   const result = await ollama.call(
     "What is a good name for a company that makes colorful socks?"
@@ -9,7 +14,28 @@ test("test call", async () => {
   console.log({ result });
 });
 
-test("test streaming call", async () => {
+test.skip("test call with callback", async () => {
+  const ollama = new Ollama({
+    baseUrl: "http://localhost:11434",
+  });
+  const tokens: string[] = [];
+  const result = await ollama.predict(
+    "What is a good name for a company that makes colorful socks?",
+    {
+      callbacks: [
+        {
+          handleLLMNewToken(token) {
+            tokens.push(token);
+          },
+        },
+      ],
+    }
+  );
+  expect(tokens.length).toBeGreaterThan(1);
+  expect(result).toEqual(tokens.join(""));
+});
+
+test.skip("test streaming call", async () => {
   const ollama = new Ollama({
     baseUrl: "http://localhost:11434",
   });
@@ -24,7 +50,7 @@ test("test streaming call", async () => {
   expect(chunks.length).toBeGreaterThan(1);
 });
 
-test("should abort the request", async () => {
+test.skip("should abort the request", async () => {
   const ollama = new Ollama({
     baseUrl: "http://localhost:11434",
   });
@@ -37,4 +63,51 @@ test("should abort the request", async () => {
     controller.abort();
     return ret;
   }).rejects.toThrow("This operation was aborted");
+});
+
+test.skip("should stream through with a bytes output parser", async () => {
+  const TEMPLATE = `You are a pirate named Patchy. All responses must be extremely verbose and in pirate dialect.
+
+  User: {input}
+  AI:`;
+
+  const prompt = PromptTemplate.fromTemplate(TEMPLATE);
+
+  const ollama = new Ollama({
+    model: "llama2",
+    baseUrl: "http://127.0.0.1:11434",
+  });
+  const outputParser = new BytesOutputParser();
+  const chain = prompt.pipe(ollama).pipe(outputParser);
+  const stream = await chain.stream({
+    input: `Translate "I love programming" into German.`,
+  });
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  console.log(chunks.join(""));
+  expect(chunks.length).toBeGreaterThan(1);
+});
+
+test.skip("JSON mode", async () => {
+  const TEMPLATE = `You are a pirate named Patchy. All responses must be in pirate dialect and in JSON format, with a property named "response" followed by the value.
+
+  User: {input}
+  AI:`;
+
+  // Infer the input variables from the template
+  const prompt = PromptTemplate.fromTemplate(TEMPLATE);
+
+  const ollama = new Ollama({
+    model: "llama2",
+    baseUrl: "http://127.0.0.1:11434",
+    format: "json",
+  });
+  const outputParser = new StringOutputParser();
+  const chain = prompt.pipe(ollama).pipe(outputParser);
+  const res = await chain.invoke({
+    input: `Translate "I love programming" into German.`,
+  });
+  expect(JSON.parse(res).response).toBeDefined();
 });

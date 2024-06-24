@@ -22,7 +22,7 @@ export const run = async () => {
     suffix: `Begin! Remember to speak as a pirate when giving your final answer. Use lots of "Args"`,
   });
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     new SystemMessagePromptTemplate(prompt),
     HumanMessagePromptTemplate.fromTemplate(`{input}
 
@@ -44,9 +44,9 @@ This was your previous work (but I haven't seen any of it! I only see what you r
 
   const executor = AgentExecutor.fromAgentAndTools({ agent, tools });
 
-  const response = await executor.run(
-    "How many people live in canada as of 2023?"
-  );
+  const response = await executor.invoke({
+    input: "How many people live in canada as of 2023?",
+  });
 
   console.log(response);
 };

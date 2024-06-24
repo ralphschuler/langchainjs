@@ -60,7 +60,7 @@ export const run = async () => {
 
   // Using ChatPromptTemplate to encapsulate the reusable parts of the prompt
 
-  const translatePrompt = ChatPromptTemplate.fromPromptMessages([
+  const translatePrompt = ChatPromptTemplate.fromMessages([
     SystemMessagePromptTemplate.fromTemplate(
       "You are a helpful assistant that translates {input_language} to {output_language}."
     ),
@@ -95,7 +95,7 @@ export const run = async () => {
 
   // Next up, stateful chains that remember the conversation history
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     SystemMessagePromptTemplate.fromTemplate(
       "The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know."
     ),
@@ -137,9 +137,9 @@ export const run = async () => {
   // Create an executor, which calls to the agent until an answer is found
   const executor = AgentExecutor.fromAgentAndTools({ agent, tools });
 
-  const responseG = await executor.run(
-    "How many people live in canada as of 2023?"
-  );
+  const responseG = await executor.invoke({
+    input: "How many people live in canada as of 2023?",
+  });
 
   console.log(responseG);
 };

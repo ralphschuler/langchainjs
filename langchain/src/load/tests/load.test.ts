@@ -1,6 +1,7 @@
 import { test, expect } from "@jest/globals";
 import { stringify } from "yaml";
 import { z } from "zod";
+import { RunnableSequence } from "@langchain/core/runnables";
 
 import { load } from "../index.js";
 import { OpenAI } from "../../llms/openai.js";
@@ -53,7 +54,11 @@ test("serialize + deserialize custom classes", async () => {
 
   class SpecialPerson extends Person {
     get lc_secrets(): { [key: string]: string } | undefined {
-      return { anotherApiKey: "SPECIAL_PERSON_API_KEY" };
+      return {
+        anotherApiKey: "SPECIAL_PERSON_API_KEY",
+        inherited: "SPECIAL_PERSON_INHERITED_API_KEY",
+        "nested.api.key": "SPECIAL_PERSON_NESTED_API_KEY",
+      };
     }
 
     get lc_attributes(): { [key: string]: unknown } | undefined {
@@ -62,14 +67,23 @@ test("serialize + deserialize custom classes", async () => {
 
     bye = 4;
 
+    inherited: string;
+
+    nested: { api: { key: string } };
+
     constructor(fields: {
       aField: string;
       apiKey: string;
       anotherApiKey: string;
+      inehrited?: string;
+      nested?: { api: { key: string } };
       hello?: number;
       bye?: number;
     }) {
       super(fields);
+
+      this.inherited = fields.inehrited ?? "i-key";
+      this.nested = fields.nested ?? { api: { key: "n-key" } };
     }
   }
 
@@ -96,6 +110,13 @@ test("serialize + deserialize custom classes", async () => {
     aField: "hello",
     apiKey: "a-key",
     anotherApiKey: "b-key",
+
+    // We explicitly do not provide the inherited and nested key
+    // to test that it has been extracted during serialisation
+    // simulating obtaining value from environment value
+
+    // inherited: "i-key",
+    // nested: { api: { key: "n-key" } },
   });
   const sstr = JSON.stringify(sperson, null, 2);
   expect(stringify(JSON.parse(sstr))).toMatchSnapshot();
@@ -104,6 +125,8 @@ test("serialize + deserialize custom classes", async () => {
     {
       PERSON_API_KEY: "a-key",
       SPECIAL_PERSON_API_KEY: "b-key",
+      SPECIAL_PERSON_NESTED_API_KEY: "n-key",
+      SPECIAL_PERSON_INHERITED_API_KEY: "i-key",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,
     {
@@ -191,6 +214,48 @@ test("serialize + deserialize llm chain string prompt", async () => {
   expect(JSON.stringify(chain2, null, 2)).toBe(str);
 });
 
+test("serialize + deserialize with new and old ids", async () => {
+  const prompt = PromptTemplate.fromTemplate("Hello, {name}!");
+  const strWithNewId = JSON.stringify(prompt, null, 2);
+  expect(stringify(JSON.parse(strWithNewId))).toMatchSnapshot();
+  expect(JSON.parse(strWithNewId).id).toEqual([
+    "langchain_core",
+    "prompts",
+    "prompt",
+    "PromptTemplate",
+  ]);
+  const strWithOldId = JSON.stringify({
+    ...JSON.parse(strWithNewId),
+    id: ["langchain", "prompts", "prompt", "PromptTemplate"],
+  });
+  const prompt2 = await load<PromptTemplate>(strWithOldId);
+  expect(prompt2).toBeInstanceOf(PromptTemplate);
+  const prompt3 = await load<PromptTemplate>(strWithNewId);
+  expect(prompt3).toBeInstanceOf(PromptTemplate);
+});
+
+test("serialize + deserialize runnable sequence with new and old ids", async () => {
+  const runnable = RunnableSequence.from([
+    ChatPromptTemplate.fromTemplate("hi there"),
+    new ChatOpenAI(),
+  ]);
+  const strWithNewId = JSON.stringify(runnable, null, 2);
+  expect(stringify(JSON.parse(strWithNewId))).toMatchSnapshot();
+  expect(JSON.parse(strWithNewId).id).toEqual([
+    "langchain_core",
+    "runnables",
+    "RunnableSequence",
+  ]);
+  const strWithOldId = JSON.stringify({
+    ...JSON.parse(strWithNewId),
+    id: ["langchain", "schema", "runnable", "RunnableSequence"],
+  });
+  const runnable2 = await load<RunnableSequence>(strWithOldId);
+  expect(runnable2).toBeInstanceOf(RunnableSequence);
+  const runnable3 = await load<RunnableSequence>(strWithNewId);
+  expect(runnable3).toBeInstanceOf(RunnableSequence);
+});
+
 test("serialize + deserialize llm chain chat prompt", async () => {
   // eslint-disable-next-line no-process-env
   process.env.OPENAI_API_KEY = undefined;
@@ -209,7 +274,7 @@ test("serialize + deserialize llm chain chat prompt", async () => {
       },
     ],
   });
-  const prompt = ChatPromptTemplate.fromPromptMessages([
+  const prompt = ChatPromptTemplate.fromMessages([
     SystemMessagePromptTemplate.fromTemplate("You are talking to {name}."),
     HumanMessagePromptTemplate.fromTemplate("Hello, nice model."),
   ]);
@@ -245,7 +310,7 @@ test("serialize + deserialize llm chain few shot prompt w/ examples", async () =
       OPENAI_API_KEY: "openai-key",
     })
   ).rejects.toThrowError(
-    'Trying to load an object that doesn\'t implement serialization: $.kwargs.prompt -> {"lc":1,"type":"not_implemented","id":["langchain","prompts","few_shot","FewShotPromptTemplate"]}'
+    'Trying to load an object that doesn\'t implement serialization: $.kwargs.prompt -> {"lc":1,"type":"not_implemented","id":["langchain_core","prompts","few_shot","FewShotPromptTemplate"]}'
   );
 });
 
@@ -274,7 +339,7 @@ test("serialize + deserialize llm chain few shot prompt w/ selector", async () =
       OPENAI_API_KEY: "openai-key",
     })
   ).rejects.toThrow(
-    'Trying to load an object that doesn\'t implement serialization: $.kwargs.prompt -> {"lc":1,"type":"not_implemented","id":["langchain","prompts","few_shot","FewShotPromptTemplate"]}'
+    'Trying to load an object that doesn\'t implement serialization: $.kwargs.prompt -> {"lc":1,"type":"not_implemented","id":["langchain_core","prompts","few_shot","FewShotPromptTemplate"]}'
   );
 });
 
@@ -437,5 +502,22 @@ test("override name of objects when serialising", async () => {
     { COHERE_API_KEY: "cohere-key" },
     { "langchain/llms/cohere": { Cohere: MangledName } }
   );
+  expect(JSON.stringify(llm2, null, 2)).toBe(str);
+});
+
+test("Should load traces even if the constructor name changes (minified environments)", async () => {
+  const llm = new Cohere({ temperature: 0.5, apiKey: "cohere-key" });
+  Object.defineProperty(llm.constructor, "name", {
+    value: "x",
+  });
+  const str = JSON.stringify(llm, null, 2);
+  console.log(str);
+
+  const llm2 = await load<Cohere>(
+    str,
+    { COHERE_API_KEY: "cohere-key" },
+    { "langchain/llms/cohere": { Cohere } }
+  );
+  console.log(JSON.stringify(llm2, null, 2));
   expect(JSON.stringify(llm2, null, 2)).toBe(str);
 });

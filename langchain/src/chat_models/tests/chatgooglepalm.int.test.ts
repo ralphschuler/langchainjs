@@ -1,5 +1,5 @@
 import { test } from "@jest/globals";
-import { HumanMessage } from "../../schema/index.js";
+import { HumanMessage, AIMessage } from "../../schema/index.js";
 import {
   PromptTemplate,
   ChatPromptTemplate,
@@ -33,6 +33,12 @@ test.skip("Test ChatGooglePalm generate", async () => {
 test.skip("ChatGooglePalm, prompt templates", async () => {
   const chat = new ChatGooglePaLM({
     maxRetries: 1,
+    examples: [
+      {
+        input: new HumanMessage("What is your favorite sock color?"),
+        output: new AIMessage("My favorite sock color be arrrr-ange!"),
+      },
+    ],
   });
 
   // PaLM doesn't support translation yet
@@ -40,7 +46,7 @@ test.skip("ChatGooglePalm, prompt templates", async () => {
     "You are a helpful assistant who must always respond like a {job}."
   );
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     new SystemMessagePromptTemplate(systemPrompt),
     HumanMessagePromptTemplate.fromTemplate("{text}"),
   ]);
@@ -60,7 +66,7 @@ test.skip("ChatGooglePalm, longer chain of messages", async () => {
     maxRetries: 1,
   });
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     AIMessagePromptTemplate.fromTemplate(
       `Hello there! I'm Droid, your personal assistant.`
     ),
@@ -81,7 +87,7 @@ test.skip("ChatGooglePalm, longer chain of messages", async () => {
 });
 
 test.skip("ChatGooglePalm, with a memory in a chain", async () => {
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     SystemMessagePromptTemplate.fromTemplate(
       "You are a helpful assistant who must always respond like a pirate"
     ),
@@ -115,7 +121,7 @@ test.skip("ChatGooglePalm, chain of messages on code", async () => {
     maxRetries: 1,
   });
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     SystemMessagePromptTemplate.fromTemplate(
       `Answer all questions using Python and just show the code without an explanation.`
     ),

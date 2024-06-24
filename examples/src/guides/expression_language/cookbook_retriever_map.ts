@@ -4,7 +4,7 @@ import { OpenAIEmbeddings } from "langchain/embeddings/openai";
 import { PromptTemplate } from "langchain/prompts";
 import { RunnableSequence } from "langchain/schema/runnable";
 import { StringOutputParser } from "langchain/schema/output_parser";
-import { Document } from "langchain/document";
+import { formatDocumentsAsString } from "langchain/util/document";
 
 const model = new ChatOpenAI({});
 
@@ -28,27 +28,30 @@ type LanguageChainInput = {
   language: string;
 };
 
-const serializeDocs = (docs: Document[]) =>
-  docs.map((doc) => doc.pageContent).join("\n");
-
 const languageChain = RunnableSequence.from([
   {
+    // Every property in the map receives the same input,
+    // so we need to extract just the standalone question to pass into the retriever.
+    // We then serialize the retrieved docs into a string to pass into the prompt.
+    context: RunnableSequence.from([
+      (input: LanguageChainInput) => input.question,
+      retriever,
+      formatDocumentsAsString,
+    ]),
     question: (input: LanguageChainInput) => input.question,
     language: (input: LanguageChainInput) => input.language,
-    context: (input: LanguageChainInput) =>
-      retriever.pipe(serializeDocs).invoke(input.question),
   },
   languagePrompt,
   model,
   new StringOutputParser(),
 ]);
 
-const result2 = await languageChain.invoke({
+const result = await languageChain.invoke({
   question: "What is the powerhouse of the cell?",
   language: "German",
 });
 
-console.log(result2);
+console.log(result);
 
 /*
   "Mitochondrien sind das Kraftwerk der Zelle."

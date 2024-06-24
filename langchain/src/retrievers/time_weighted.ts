@@ -3,6 +3,10 @@ import { Document } from "../document.js";
 import { BaseRetriever, BaseRetrieverInput } from "../schema/retriever.js";
 import { CallbackManagerForRetrieverRun } from "../callbacks/manager.js";
 
+/**
+ * Interface for the fields required to initialize a
+ * TimeWeightedVectorStoreRetriever instance.
+ */
 export interface TimeWeightedVectorStoreRetrieverFields
   extends BaseRetrieverInput {
   vectorStore: VectorStore;
@@ -19,9 +23,29 @@ export const BUFFER_IDX = "buffer_idx";
 
 /**
  * TimeWeightedVectorStoreRetriever retrieves documents based on their time-weighted relevance.
- * ref: https://github.com/hwchase17/langchain/blob/master/langchain/retrievers/time_weighted_retriever.py
+ * ref: https://github.com/langchain-ai/langchain/blob/master/libs/langchain/langchain/retrievers/time_weighted_retriever.py
+ * @example
+ * ```typescript
+ * const retriever = new TimeWeightedVectorStoreRetriever({
+ *   vectorStore: new MemoryVectorStore(new OpenAIEmbeddings()),
+ *   memoryStream: [],
+ *   searchKwargs: 2,
+ * });
+ * await retriever.addDocuments([
+ *   { pageContent: "My name is John.", metadata: {} },
+ *   { pageContent: "My favourite food is pizza.", metadata: {} },
+ *
+ * ]);
+ * const results = await retriever.getRelevantDocuments(
+ *   "What is my favourite food?",
+ * );
+ * ```
  */
 export class TimeWeightedVectorStoreRetriever extends BaseRetriever {
+  static lc_name() {
+    return "TimeWeightedVectorStoreRetriever";
+  }
+
   get lc_namespace() {
     return ["langchain", "retrievers", "time_weighted"];
   }
@@ -76,10 +100,18 @@ export class TimeWeightedVectorStoreRetriever extends BaseRetriever {
     this.defaultSalience = fields.defaultSalience ?? null;
   }
 
+  /**
+   * Get the memory stream of documents.
+   * @returns The memory stream of documents.
+   */
   getMemoryStream(): Document[] {
     return this.memoryStream;
   }
 
+  /**
+   * Set the memory stream of documents.
+   * @param memoryStream The new memory stream of documents.
+   */
   setMemoryStream(memoryStream: Document[]) {
     this.memoryStream = memoryStream;
   }

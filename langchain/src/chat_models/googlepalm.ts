@@ -7,10 +7,19 @@ import {
   BaseMessage,
   ChatMessage,
   ChatResult,
+  isBaseMessage,
 } from "../schema/index.js";
 import { getEnvironmentVariable } from "../util/env.js";
 import { BaseChatModel, BaseChatModelParams } from "./base.js";
 
+export type BaseMessageExamplePair = {
+  input: BaseMessage;
+  output: BaseMessage;
+};
+
+/**
+ * An interface defining the input to the ChatGooglePaLM class.
+ */
 export interface GooglePaLMChatInput extends BaseChatModelParams {
   /**
    * Model Name to use
@@ -57,7 +66,9 @@ export interface GooglePaLMChatInput extends BaseChatModelParams {
    */
   topK?: number;
 
-  examples?: protos.google.ai.generativelanguage.v1beta2.IExample[];
+  examples?:
+    | protos.google.ai.generativelanguage.v1beta2.IExample[]
+    | BaseMessageExamplePair[];
 
   /**
    * Google Palm API key to use
@@ -73,10 +84,43 @@ function getMessageAuthor(message: BaseMessage) {
   return message.name ?? type;
 }
 
+/**
+ * A class that wraps the Google Palm chat model.
+ * @example
+ * ```typescript
+ * const model = new ChatGooglePaLM({
+ *   apiKey: "<YOUR API KEY>",
+ *   temperature: 0.7,
+ *   modelName: "models/chat-bison-001",
+ *   topK: 40,
+ *   topP: 1,
+ *   examples: [
+ *     {
+ *       input: new HumanMessage("What is your favorite sock color?"),
+ *       output: new AIMessage("My favorite sock color be arrrr-ange!"),
+ *     },
+ *   ],
+ * });
+ * const questions = [
+ *   new SystemMessage(
+ *     "You are a funny assistant that answers in pirate language."
+ *   ),
+ *   new HumanMessage("What is your favorite food?"),
+ * ];
+ * const res = await model.call(questions);
+ * console.log({ res });
+ * ```
+ */
 export class ChatGooglePaLM
   extends BaseChatModel
   implements GooglePaLMChatInput
 {
+  static lc_name() {
+    return "ChatGooglePaLM";
+  }
+
+  lc_serializable = true;
+
   get lc_secrets(): { [key: string]: string } | undefined {
     return {
       apiKey: "GOOGLE_PALM_API_KEY",
@@ -117,7 +161,29 @@ export class ChatGooglePaLM
       throw new Error("`topK` must be a positive integer");
     }
 
-    this.examples = fields?.examples ?? this.examples;
+    this.examples =
+      fields?.examples?.map((example) => {
+        if (
+          (isBaseMessage(example.input) &&
+            typeof example.input.content !== "string") ||
+          (isBaseMessage(example.output) &&
+            typeof example.output.content !== "string")
+        ) {
+          throw new Error(
+            "GooglePaLM example messages may only have string content."
+          );
+        }
+        return {
+          input: {
+            ...example.input,
+            content: example.input?.content as string,
+          },
+          output: {
+            ...example.output,
+            content: example.output?.content as string,
+          },
+        };
+      }) ?? this.examples;
 
     this.apiKey =
       fields?.apiKey ?? getEnvironmentVariable("GOOGLE_PALM_API_KEY");
@@ -191,6 +257,12 @@ export class ChatGooglePaLM
       messages.length > 0 && getMessageAuthor(messages[0]) === "system"
         ? messages[0]
         : undefined;
+    if (
+      systemMessage?.content !== undefined &&
+      typeof systemMessage.content !== "string"
+    ) {
+      throw new Error("Non-string system message content is not supported.");
+    }
     return systemMessage?.content;
   }
 
@@ -214,15 +286,22 @@ export class ChatGooglePaLM
       }
     });
 
-    return nonSystemMessages.map((m) => ({
-      author: getMessageAuthor(m),
-      content: m.content,
-      citationMetadata: {
-        citationSources: m.additional_kwargs.citationSources as
-          | protos.google.ai.generativelanguage.v1beta2.ICitationSource[]
-          | undefined,
-      },
-    }));
+    return nonSystemMessages.map((m) => {
+      if (typeof m.content !== "string") {
+        throw new Error(
+          "ChatGooglePaLM does not support non-string message content."
+        );
+      }
+      return {
+        author: getMessageAuthor(m),
+        content: m.content,
+        citationMetadata: {
+          citationSources: m.additional_kwargs.citationSources as
+            | protos.google.ai.generativelanguage.v1beta2.ICitationSource[]
+            | undefined,
+        },
+      };
+    });
   }
 
   protected _mapPalmMessagesToChatResult(

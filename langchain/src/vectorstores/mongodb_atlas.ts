@@ -4,6 +4,11 @@ import { Embeddings } from "../embeddings/base.js";
 import { Document } from "../document.js";
 import { maximalMarginalRelevance } from "../util/math.js";
 
+/**
+ * Type that defines the arguments required to initialize the
+ * MongoDBAtlasVectorSearch class. It includes the MongoDB collection,
+ * index name, text key, and embedding key.
+ */
 export type MongoDBAtlasVectorSearchLibArgs = {
   readonly collection: Collection<MongoDBDocument>;
   readonly indexName?: string;
@@ -11,12 +16,24 @@ export type MongoDBAtlasVectorSearchLibArgs = {
   readonly embeddingKey?: string;
 };
 
+/**
+ * Type that defines the filter used in the
+ * similaritySearchVectorWithScore and maxMarginalRelevanceSearch methods.
+ * It includes pre-filter, post-filter pipeline, and a flag to include
+ * embeddings.
+ */
 type MongoDBAtlasFilter = {
   preFilter?: MongoDBDocument;
   postFilterPipeline?: MongoDBDocument[];
   includeEmbeddings?: boolean;
 } & MongoDBDocument;
 
+/**
+ * Class that is a wrapper around MongoDB Atlas Vector Search. It is used
+ * to store embeddings in MongoDB documents, create a vector search index,
+ * and perform K-Nearest Neighbors (KNN) search with an approximate
+ * nearest neighbor algorithm.
+ */
 export class MongoDBAtlasVectorSearch extends VectorStore {
   declare FilterType: MongoDBAtlasFilter;
 
@@ -40,6 +57,13 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     this.embeddingKey = args.embeddingKey ?? "embedding";
   }
 
+  /**
+   * Method to add vectors and their corresponding documents to the MongoDB
+   * collection.
+   * @param vectors Vectors to be added.
+   * @param documents Corresponding documents to be added.
+   * @returns Promise that resolves when the vectors and documents have been added.
+   */
   async addVectors(vectors: number[][], documents: Document[]): Promise<void> {
     const docs = vectors.map((embedding, idx) => ({
       [this.textKey]: documents[idx].pageContent,
@@ -49,6 +73,13 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     await this.collection.insertMany(docs);
   }
 
+  /**
+   * Method to add documents to the MongoDB collection. It first converts
+   * the documents to vectors using the embeddings and then calls the
+   * addVectors method.
+   * @param documents Documents to be added.
+   * @returns Promise that resolves when the documents have been added.
+   */
   async addDocuments(documents: Document[]): Promise<void> {
     const texts = documents.map(({ pageContent }) => pageContent);
     return this.addVectors(
@@ -57,68 +88,65 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     );
   }
 
+  /**
+   * Method that performs a similarity search on the vectors stored in the
+   * MongoDB collection. It returns a list of documents and their
+   * corresponding similarity scores.
+   * @param query Query vector for the similarity search.
+   * @param k Number of nearest neighbors to return.
+   * @param filter Optional filter to be applied.
+   * @returns Promise that resolves to a list of documents and their corresponding similarity scores.
+   */
   async similaritySearchVectorWithScore(
     query: number[],
     k: number,
     filter?: MongoDBAtlasFilter
   ): Promise<[Document, number][]> {
-    const knnBeta: MongoDBDocument = {
-      vector: query,
-      path: this.embeddingKey,
-      k,
-    };
-
-    let preFilter: MongoDBDocument | undefined;
-    let postFilterPipeline: MongoDBDocument[] | undefined;
-    let includeEmbeddings: boolean | undefined;
-    if (
+    const postFilterPipeline = filter?.postFilterPipeline ?? [];
+    const preFilter: MongoDBDocument | undefined =
       filter?.preFilter ||
       filter?.postFilterPipeline ||
       filter?.includeEmbeddings
-    ) {
-      preFilter = filter.preFilter;
-      postFilterPipeline = filter.postFilterPipeline;
-      includeEmbeddings = filter.includeEmbeddings || false;
-    } else preFilter = filter;
+        ? filter.preFilter
+        : filter;
+    const removeEmbeddingsPipeline = !filter?.includeEmbeddings
+      ? [
+          {
+            $project: {
+              [this.embeddingKey]: 0,
+            },
+          },
+        ]
+      : [];
 
-    if (preFilter) {
-      knnBeta.filter = preFilter;
-    }
     const pipeline: MongoDBDocument[] = [
       {
-        $search: {
+        $vectorSearch: {
+          queryVector: MongoDBAtlasVectorSearch.fixArrayPrecision(query),
           index: this.indexName,
-          knnBeta,
+          path: this.embeddingKey,
+          limit: k,
+          numCandidates: 10 * k,
+          ...(preFilter && { filter: preFilter }),
         },
       },
       {
         $set: {
-          score: { $meta: "searchScore" },
+          score: { $meta: "vectorSearchScore" },
         },
       },
+      ...removeEmbeddingsPipeline,
+      ...postFilterPipeline,
     ];
 
-    if (!includeEmbeddings) {
-      const removeEmbeddingsStage = {
-        $project: {
-          [this.embeddingKey]: 0,
-        },
-      };
-      pipeline.push(removeEmbeddingsStage);
-    }
+    const results = this.collection
+      .aggregate(pipeline)
+      .map<[Document, number]>((result) => {
+        const { score, [this.textKey]: text, ...metadata } = result;
+        return [new Document({ pageContent: text, metadata }), score];
+      });
 
-    if (postFilterPipeline) {
-      pipeline.push(...postFilterPipeline);
-    }
-    const results = this.collection.aggregate(pipeline);
-
-    const ret: [Document, number][] = [];
-    for await (const result of results) {
-      const { score, [this.textKey]: text, ...metadata } = result;
-      ret.push([new Document({ pageContent: text, metadata }), score]);
-    }
-
-    return ret;
+    return results.toArray();
   }
 
   /**
@@ -154,7 +182,7 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     };
 
     const resultDocs = await this.similaritySearchVectorWithScore(
-      queryEmbedding,
+      MongoDBAtlasVectorSearch.fixArrayPrecision(queryEmbedding),
       fetchK,
       includeEmbeddingsFilter
     );
@@ -181,6 +209,16 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     });
   }
 
+  /**
+   * Static method to create an instance of MongoDBAtlasVectorSearch from a
+   * list of texts. It first converts the texts to vectors and then adds
+   * them to the MongoDB collection.
+   * @param texts List of texts to be converted to vectors.
+   * @param metadatas Metadata for the texts.
+   * @param embeddings Embeddings to be used for conversion.
+   * @param dbConfig Database configuration for MongoDB Atlas.
+   * @returns Promise that resolves to a new instance of MongoDBAtlasVectorSearch.
+   */
   static async fromTexts(
     texts: string[],
     metadatas: object[] | object,
@@ -199,6 +237,15 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     return MongoDBAtlasVectorSearch.fromDocuments(docs, embeddings, dbConfig);
   }
 
+  /**
+   * Static method to create an instance of MongoDBAtlasVectorSearch from a
+   * list of documents. It first converts the documents to vectors and then
+   * adds them to the MongoDB collection.
+   * @param docs List of documents to be converted to vectors.
+   * @param embeddings Embeddings to be used for conversion.
+   * @param dbConfig Database configuration for MongoDB Atlas.
+   * @returns Promise that resolves to a new instance of MongoDBAtlasVectorSearch.
+   */
   static async fromDocuments(
     docs: Document[],
     embeddings: Embeddings,
@@ -207,5 +254,26 @@ export class MongoDBAtlasVectorSearch extends VectorStore {
     const instance = new this(embeddings, dbConfig);
     await instance.addDocuments(docs);
     return instance;
+  }
+
+  /**
+   * Static method to fix the precision of the array that ensures that
+   * every number in this array is always float when casted to other types.
+   * This is needed since MongoDB Atlas Vector Search does not cast integer
+   * inside vector search to float automatically.
+   * This method shall introduce a hint of error but should be safe to use
+   * since introduced error is very small, only applies to integer numbers
+   * returned by embeddings, and most embeddings shall not have precision
+   * as high as 15 decimal places.
+   * @param array Array of number to be fixed.
+   * @returns
+   */
+  static fixArrayPrecision(array: number[]) {
+    return array.map((value) => {
+      if (Number.isInteger(value)) {
+        return value + 0.000000000000001;
+      }
+      return value;
+    });
   }
 }

@@ -15,6 +15,7 @@ import {
 } from "../callbacks/manager.js";
 import { Embeddings } from "../embeddings/base.js";
 import fetchAdapter from "../util/axios-fetch-adapter.js";
+import { formatDocumentsAsString } from "../util/document.js";
 
 export const parseInputs = (inputs: string): [string, string] => {
   const [baseUrl, task] = inputs.split(",").map((input) => {
@@ -144,6 +145,12 @@ const DEFAULT_HEADERS = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Headers = Record<string, any>;
 
+/**
+ * Defines the arguments that can be passed to the WebBrowser constructor.
+ * It extends the ToolParams interface and includes properties for a
+ * language model, embeddings, HTTP headers, an Axios configuration, a
+ * callback manager, and a text splitter.
+ */
 export interface WebBrowserArgs extends ToolParams {
   model: BaseLanguageModel;
 
@@ -159,7 +166,25 @@ export interface WebBrowserArgs extends ToolParams {
   textSplitter?: TextSplitter;
 }
 
+/**
+ * A class designed to interact with web pages, either to extract
+ * information from them or to summarize their content. It uses the axios
+ * library to send HTTP requests and the cheerio library to parse the
+ * returned HTML.
+ * @example
+ * ```typescript
+ * const browser = new WebBrowser({
+ *   model: new ChatOpenAI({ temperature: 0 }),
+ *   embeddings: new OpenAIEmbeddings({}),
+ * });
+ * const result = await browser.invoke("https:exampleurl.com");
+ * ```
+ */
 export class WebBrowser extends Tool {
+  static lc_name() {
+    return "WebBrowser";
+  }
+
   get lc_namespace() {
     return [...super.lc_namespace, "webbrowser"];
   }
@@ -242,7 +267,7 @@ export class WebBrowser extends Tool {
         undefined,
         runManager?.getChild("vectorstore")
       );
-      context = results.map((res) => res.pageContent).join("\n");
+      context = formatDocumentsAsString(results);
     }
 
     const input = `Text:${context}\n\nI need ${

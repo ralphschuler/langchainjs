@@ -13,6 +13,9 @@ import { BasePromptTemplate } from "../prompts/base.js";
 import { PromptTemplate } from "../prompts/prompt.js";
 import { CallbackManagerForChainRun } from "../callbacks/manager.js";
 
+/**
+ * Interface for the input properties of the StuffDocumentsChain class.
+ */
 export interface StuffDocumentsChainInput extends ChainInputs {
   /** LLM Wrapper to use after formatting documents */
   llmChain: LLMChain;
@@ -30,6 +33,10 @@ export class StuffDocumentsChain
   extends BaseChain
   implements StuffDocumentsChainInput
 {
+  static lc_name() {
+    return "StuffDocumentsChain";
+  }
+
   llmChain: LLMChain;
 
   inputKey = "input_documents";
@@ -102,6 +109,10 @@ export class StuffDocumentsChain
   }
 }
 
+/**
+ * Interface for the input properties of the MapReduceDocumentsChain
+ * class.
+ */
 export interface MapReduceDocumentsChainInput extends StuffDocumentsChainInput {
   /** The maximum number of tokens before requiring to do the reduction */
   maxTokens?: number;
@@ -124,6 +135,10 @@ export class MapReduceDocumentsChain
   extends BaseChain
   implements MapReduceDocumentsChainInput
 {
+  static lc_name() {
+    return "MapReduceDocumentsChain";
+  }
+
   llmChain: LLMChain;
 
   inputKey = "input_documents";
@@ -191,8 +206,9 @@ export class MapReduceDocumentsChain
               ...rest,
             })
           );
-        const length =
-          await this.combineDocumentChain.llmChain.llm.getNumTokens(formatted);
+        const length = await this.combineDocumentChain.llmChain._getNumTokens(
+          formatted
+        );
 
         const withinTokenLimit = length < this.maxTokens;
         // If we can skip the map step, and we're within the token limit, we don't
@@ -275,6 +291,9 @@ export class MapReduceDocumentsChain
   }
 }
 
+/**
+ * Interface for the input properties of the RefineDocumentsChain class.
+ */
 export interface RefineDocumentsChainInput extends StuffDocumentsChainInput {
   refineLLMChain: LLMChain;
   documentPrompt?: BasePromptTemplate;
@@ -292,6 +311,10 @@ export class RefineDocumentsChain
   extends BaseChain
   implements RefineDocumentsChainInput
 {
+  static lc_name() {
+    return "RefineDocumentsChain";
+  }
+
   llmChain: LLMChain;
 
   inputKey = "input_documents";

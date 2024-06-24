@@ -1,6 +1,11 @@
 import { getEnvironmentVariable } from "../util/env.js";
 import { LLM, BaseLLMParams } from "./base.js";
 
+/**
+ * Interface defining the structure of the input data for the Replicate
+ * class. It includes details about the model to be used, any additional
+ * input parameters, and the API key for the Replicate service.
+ */
 export interface ReplicateInput {
   // owner/model_name:version
   model: `${string}/${string}:${string}`;
@@ -11,9 +16,33 @@ export interface ReplicateInput {
   };
 
   apiKey?: string;
+
+  /** The key used to pass prompts to the model. */
+  promptKey?: string;
 }
 
+/**
+ * Class responsible for managing the interaction with the Replicate API.
+ * It handles the API key and model details, makes the actual API calls,
+ * and converts the API response into a format usable by the rest of the
+ * LangChain framework.
+ * @example
+ * ```typescript
+ * const model = new Replicate({
+ *   model: "replicate/flan-t5-xl:3ae0799123a1fe11f8c89fd99632f843fc5f7a761630160521c4253149754523",
+ * });
+ *
+ * const res = await model.call(
+ *   "Question: What would be a good company name for a company that makes colorful socks?\nAnswer:"
+ * );
+ * console.log({ res });
+ * ```
+ */
 export class Replicate extends LLM implements ReplicateInput {
+  static lc_name() {
+    return "Replicate";
+  }
+
   get lc_secrets(): { [key: string]: string } | undefined {
     return {
       apiKey: "REPLICATE_API_TOKEN",
@@ -27,6 +56,8 @@ export class Replicate extends LLM implements ReplicateInput {
   input: ReplicateInput["input"];
 
   apiKey: string;
+
+  promptKey?: string;
 
   constructor(fields: ReplicateInput & BaseLLMParams) {
     super(fields);
@@ -45,6 +76,7 @@ export class Replicate extends LLM implements ReplicateInput {
     this.apiKey = apiKey;
     this.model = fields.model;
     this.input = fields.input ?? {};
+    this.promptKey = fields.promptKey;
   }
 
   _llmType() {
@@ -63,14 +95,38 @@ export class Replicate extends LLM implements ReplicateInput {
       auth: this.apiKey,
     });
 
+    if (this.promptKey === undefined) {
+      const [modelString, versionString] = this.model.split(":");
+      const version = await replicate.models.versions.get(
+        modelString.split("/")[0],
+        modelString.split("/")[1],
+        versionString
+      );
+      const openapiSchema = version.openapi_schema;
+      const inputProperties: { "x-order": number | undefined }[] =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (openapiSchema as any)?.components?.schemas?.Input?.properties;
+      if (inputProperties === undefined) {
+        this.promptKey = "prompt";
+      } else {
+        const sortedInputProperties = Object.entries(inputProperties).sort(
+          ([_keyA, valueA], [_keyB, valueB]) => {
+            const orderA = valueA["x-order"] || 0;
+            const orderB = valueB["x-order"] || 0;
+            return orderA - orderB;
+          }
+        );
+        this.promptKey = sortedInputProperties[0][0] ?? "prompt";
+      }
+    }
     const output = await this.caller.callWithOptions(
       { signal: options.signal },
       () =>
         replicate.run(this.model, {
-          wait: true,
           input: {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            [this.promptKey!]: prompt,
             ...this.input,
-            prompt,
           },
         })
     );

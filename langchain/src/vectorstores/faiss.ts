@@ -6,12 +6,21 @@ import { SaveableVectorStore } from "./base.js";
 import { Document } from "../document.js";
 import { SynchronousInMemoryDocstore } from "../stores/doc/in_memory.js";
 
+/**
+ * Interface for the arguments required to initialize a FaissStore
+ * instance.
+ */
 export interface FaissLibArgs {
   docstore?: SynchronousInMemoryDocstore;
   index?: IndexFlatL2;
   mapping?: Record<number, string>;
 }
 
+/**
+ * A class that wraps the FAISS (Facebook AI Similarity Search) vector
+ * database for efficient similarity search and clustering of dense
+ * vectors.
+ */
 export class FaissStore extends SaveableVectorStore {
   _index?: IndexFlatL2;
 
@@ -25,6 +34,14 @@ export class FaissStore extends SaveableVectorStore {
     return "faiss";
   }
 
+  getMapping(): Record<number, string> {
+    return this._mapping;
+  }
+
+  getDocstore(): SynchronousInMemoryDocstore {
+    return this.docstore;
+  }
+
   constructor(embeddings: Embeddings, args: FaissLibArgs) {
     super(embeddings, args);
     this.args = args;
@@ -34,18 +51,24 @@ export class FaissStore extends SaveableVectorStore {
     this.docstore = args?.docstore ?? new SynchronousInMemoryDocstore();
   }
 
-  async addDocuments(documents: Document[]) {
+  /**
+   * Adds an array of Document objects to the store.
+   * @param documents An array of Document objects.
+   * @returns A Promise that resolves when the documents have been added.
+   */
+  async addDocuments(documents: Document[], options?: { ids?: string[] }) {
     const texts = documents.map(({ pageContent }) => pageContent);
     return this.addVectors(
       await this.embeddings.embedDocuments(texts),
-      documents
+      documents,
+      options
     );
   }
 
   public get index(): IndexFlatL2 {
     if (!this._index) {
       throw new Error(
-        "Vector store not initialised yet. Try calling `fromTexts` or `fromDocuments` first."
+        "Vector store not initialised yet. Try calling `fromTexts`, `fromDocuments` or `fromIndex` first."
       );
     }
     return this._index;
@@ -55,7 +78,18 @@ export class FaissStore extends SaveableVectorStore {
     this._index = index;
   }
 
-  async addVectors(vectors: number[][], documents: Document[]) {
+  /**
+   * Adds an array of vectors and their corresponding Document objects to
+   * the store.
+   * @param vectors An array of vectors.
+   * @param documents An array of Document objects corresponding to the vectors.
+   * @returns A Promise that resolves with an array of document IDs when the vectors and documents have been added.
+   */
+  async addVectors(
+    vectors: number[][],
+    documents: Document[],
+    options?: { ids?: string[] }
+  ) {
     if (vectors.length === 0) {
       return [];
     }
@@ -75,10 +109,9 @@ export class FaissStore extends SaveableVectorStore {
     }
 
     const docstoreSize = this.index.ntotal();
-    const documentIds = [];
+    const documentIds = options?.ids ?? documents.map(() => uuid.v4());
     for (let i = 0; i < vectors.length; i += 1) {
-      const documentId = uuid.v4();
-      documentIds.push(documentId);
+      const documentId = documentIds[i];
       const id = docstoreSize + i;
       this.index.add(vectors[i]);
       this._mapping[id] = documentId;
@@ -87,6 +120,13 @@ export class FaissStore extends SaveableVectorStore {
     return documentIds;
   }
 
+  /**
+   * Performs a similarity search in the vector store using a query vector
+   * and returns the top k results along with their scores.
+   * @param query A query vector.
+   * @param k The number of top results to return.
+   * @returns A Promise that resolves with an array of tuples, each containing a Document and its corresponding score.
+   */
   async similaritySearchVectorWithScore(query: number[], k: number) {
     const d = this.index.getDimension();
     if (query.length !== d) {
@@ -112,6 +152,11 @@ export class FaissStore extends SaveableVectorStore {
     });
   }
 
+  /**
+   * Saves the current state of the FaissStore to a specified directory.
+   * @param directory The directory to save the state to.
+   * @returns A Promise that resolves when the state has been saved.
+   */
   async save(directory: string) {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
@@ -128,6 +173,93 @@ export class FaissStore extends SaveableVectorStore {
     ]);
   }
 
+  /**
+   * Method to delete documents.
+   * @param params Object containing the IDs of the documents to delete.
+   * @returns A promise that resolves when the deletion is complete.
+   */
+  async delete(params: { ids: string[] }) {
+    const documentIds = params.ids;
+    if (documentIds == null) {
+      throw new Error("No documentIds provided to delete.");
+    }
+
+    const mappings = new Map(
+      Object.entries(this._mapping).map(([key, value]) => [
+        parseInt(key, 10),
+        value,
+      ])
+    );
+    const reversedMappings = new Map(
+      Array.from(mappings, (entry) => [entry[1], entry[0]])
+    );
+
+    const missingIds = new Set(
+      documentIds.filter((id) => !reversedMappings.has(id))
+    );
+    if (missingIds.size > 0) {
+      throw new Error(
+        `Some specified documentIds do not exist in the current store. DocumentIds not found: ${Array.from(
+          missingIds
+        ).join(", ")}`
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const indexIdToDelete = documentIds.map((id) => reversedMappings.get(id)!);
+
+    // remove from index
+    this.index.removeIds(indexIdToDelete);
+    // remove from docstore
+    documentIds.forEach((id) => {
+      this.docstore._docs.delete(id);
+    });
+    // remove from mappings
+    indexIdToDelete.forEach((id) => {
+      mappings.delete(id);
+    });
+
+    this._mapping = { ...Array.from(mappings.values()) };
+  }
+
+  /**
+   * Merges the current FaissStore with another FaissStore.
+   * @param targetIndex The FaissStore to merge with.
+   * @returns A Promise that resolves with an array of document IDs when the merge is complete.
+   */
+  async mergeFrom(targetIndex: FaissStore) {
+    const targetIndexDimensions = targetIndex.index.getDimension();
+    if (!this._index) {
+      const { IndexFlatL2 } = await FaissStore.importFaiss();
+      this._index = new IndexFlatL2(targetIndexDimensions);
+    }
+    const d = this.index.getDimension();
+    if (targetIndexDimensions !== d) {
+      throw new Error("Cannot merge indexes with different dimensions.");
+    }
+    const targetMapping = targetIndex.getMapping();
+    const targetDocstore = targetIndex.getDocstore();
+    const targetSize = targetIndex.index.ntotal();
+    const documentIds = [];
+    const currentDocstoreSize = this.index.ntotal();
+    for (let i = 0; i < targetSize; i += 1) {
+      const targetId = targetMapping[i];
+      documentIds.push(targetId);
+      const targetDocument = targetDocstore.search(targetId);
+      const id = currentDocstoreSize + i;
+      this._mapping[id] = targetId;
+      this.docstore.add({ [targetId]: targetDocument });
+    }
+    this.index.mergeFrom(targetIndex.index);
+    return documentIds;
+  }
+
+  /**
+   * Loads a FaissStore from a specified directory.
+   * @param directory The directory to load the FaissStore from.
+   * @param embeddings An Embeddings object.
+   * @returns A Promise that resolves with a new FaissStore instance.
+   */
   static async load(directory: string, embeddings: Embeddings) {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
@@ -219,6 +351,15 @@ export class FaissStore extends SaveableVectorStore {
     });
   }
 
+  /**
+   * Creates a new FaissStore from an array of texts, their corresponding
+   * metadata, and an Embeddings object.
+   * @param texts An array of texts.
+   * @param metadatas An array of metadata corresponding to the texts, or a single metadata object to be used for all texts.
+   * @param embeddings An Embeddings object.
+   * @param dbConfig An optional configuration object for the document store.
+   * @returns A Promise that resolves with a new FaissStore instance.
+   */
   static async fromTexts(
     texts: string[],
     metadatas: object[] | object,
@@ -239,6 +380,14 @@ export class FaissStore extends SaveableVectorStore {
     return this.fromDocuments(docs, embeddings, dbConfig);
   }
 
+  /**
+   * Creates a new FaissStore from an array of Document objects and an
+   * Embeddings object.
+   * @param docs An array of Document objects.
+   * @param embeddings An Embeddings object.
+   * @param dbConfig An optional configuration object for the document store.
+   * @returns A Promise that resolves with a new FaissStore instance.
+   */
   static async fromDocuments(
     docs: Document[],
     embeddings: Embeddings,
@@ -251,6 +400,29 @@ export class FaissStore extends SaveableVectorStore {
     };
     const instance = new this(embeddings, args);
     await instance.addDocuments(docs);
+    return instance;
+  }
+
+  /**
+   * Creates a new FaissStore from an existing FaissStore and an Embeddings
+   * object.
+   * @param targetIndex An existing FaissStore.
+   * @param embeddings An Embeddings object.
+   * @param dbConfig An optional configuration object for the document store.
+   * @returns A Promise that resolves with a new FaissStore instance.
+   */
+  static async fromIndex(
+    targetIndex: FaissStore,
+    embeddings: Embeddings,
+    dbConfig?: {
+      docstore?: SynchronousInMemoryDocstore;
+    }
+  ): Promise<FaissStore> {
+    const args: FaissLibArgs = {
+      docstore: dbConfig?.docstore,
+    };
+    const instance = new this(embeddings, args);
+    await instance.mergeFrom(targetIndex);
     return instance;
   }
 

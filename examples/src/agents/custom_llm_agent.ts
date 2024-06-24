@@ -6,7 +6,6 @@ import {
 import { LLMChain } from "langchain/chains";
 import { OpenAI } from "langchain/llms/openai";
 import {
-  BasePromptTemplate,
   BaseStringPromptTemplate,
   SerializedBasePromptTemplate,
   renderTemplate,
@@ -72,7 +71,7 @@ class CustomPromptTemplate extends BaseStringPromptTemplate {
     return Promise.resolve(renderTemplate(template, "f-string", newInput));
   }
 
-  partial(_values: PartialValues): Promise<BasePromptTemplate> {
+  partial(_values: PartialValues): Promise<BaseStringPromptTemplate> {
     throw new Error("Not implemented");
   }
 
@@ -143,7 +142,7 @@ export const run = async () => {
 
   console.log(`Executing with input "${input}"...`);
 
-  const result = await executor.call({ input });
+  const result = await executor.invoke({ input });
 
   console.log(`Got output ${result.output}`);
 };

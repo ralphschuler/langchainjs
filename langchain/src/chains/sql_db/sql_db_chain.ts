@@ -14,6 +14,11 @@ import { CallbackManagerForChainRun } from "../../callbacks/manager.js";
 import { getPromptTemplateFromDataSource } from "../../util/sql_utils.js";
 import { PromptTemplate } from "../../prompts/index.js";
 
+/**
+ * Interface that extends the ChainInputs interface and defines additional
+ * fields specific to a SQL database chain. It represents the input fields
+ * for a SQL database chain.
+ */
 export interface SqlDatabaseChainInput extends ChainInputs {
   llm: BaseLanguageModel;
   database: SqlDatabase;
@@ -24,7 +29,36 @@ export interface SqlDatabaseChainInput extends ChainInputs {
   prompt?: PromptTemplate;
 }
 
+/**
+ * Class that represents a SQL database chain in the LangChain framework.
+ * It extends the BaseChain class and implements the functionality
+ * specific to a SQL database chain.
+ *
+ * @security **Security Notice**
+ * This chain generates SQL queries for the given database.
+ * The SQLDatabase class provides a getTableInfo method that can be used
+ * to get column information as well as sample data from the table.
+ * To mitigate risk of leaking sensitive data, limit permissions
+ * to read and scope to the tables that are needed.
+ * Optionally, use the includesTables or ignoreTables class parameters
+ * to limit which tables can/cannot be accessed.
+ *
+ * @link See https://js.langchain.com/docs/security for more information.
+ * @example
+ * ```typescript
+ * const chain = new SqlDatabaseChain({
+ *   llm: new OpenAI({ temperature: 0 }),
+ *   database: new SqlDatabase({ ...config }),
+ * });
+ *
+ * const result = await chain.run("How many tracks are there?");
+ * ```
+ */
 export class SqlDatabaseChain extends BaseChain {
+  static lc_name() {
+    return "SqlDatabaseChain";
+  }
+
   // LLM wrapper to use
   llm: BaseLanguageModel;
 
@@ -136,6 +170,14 @@ export class SqlDatabaseChain extends BaseChain {
     return [this.outputKey];
   }
 
+  /**
+   * Private method that verifies the number of tokens in the input text and
+   * table information. It throws an error if the number of tokens exceeds
+   * the maximum allowed by the language model.
+   * @param inputText The input text.
+   * @param tableinfo The table information.
+   * @returns A promise that resolves when the verification is complete.
+   */
   private async verifyNumberOfTokens(
     inputText: string,
     tableinfo: string

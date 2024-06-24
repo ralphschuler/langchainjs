@@ -14,11 +14,18 @@ export interface Query {
   limit?: number;
 }
 
+/**
+ * Interface representing the parameters for the SortXYZBlockchainLoader
+ * class.
+ */
 export interface SortXYZBlockchainLoaderParams {
   apiKey: string;
   query: Query | string;
 }
 
+/**
+ * Interface representing the response from the SortXYZ API.
+ */
 export interface SortXYZBlockchainAPIResponse {
   code: number;
   data: {
@@ -30,6 +37,32 @@ export interface SortXYZBlockchainAPIResponse {
   };
 }
 
+/**
+ * Class representing a document loader for loading data from the SortXYZ
+ * blockchain using the SortXYZ API.
+ * @example
+ * ```typescript
+ * const blockchainLoader = new SortXYZBlockchainLoader({
+ *   apiKey: "YOUR_SORTXYZ_API_KEY",
+ *   query: {
+ *     type: "NFTMetadata",
+ *     blockchain: "ethereum",
+ *     contractAddress: "0x887F3909C14DAbd9e9510128cA6cBb448E932d7f".toLowerCase(),
+ *   },
+ * });
+ *
+ * const blockchainData = await blockchainLoader.load();
+ *
+ * const prompt =
+ *   "Describe the character with the attributes from the following json document in a 4 sentence story. ";
+ * const model = new ChatOpenAI({ temperature: 0.9 })
+ * const response = await model.invoke(
+ *   prompt + JSON.stringify(blockchainData[0], null, 2),
+ * );
+ * console.log(`user > ${prompt}`);
+ * console.log(`chatgpt > ${response}`);
+ * ```
+ */
 export class SortXYZBlockchainLoader extends BaseDocumentLoader {
   public readonly contractAddress: string;
 
@@ -64,6 +97,12 @@ export class SortXYZBlockchainLoader extends BaseDocumentLoader {
     }
   }
 
+  /**
+   * Method that loads the data from the SortXYZ blockchain based on the
+   * specified query parameters. It makes requests to the SortXYZ API and
+   * returns an array of Documents representing the retrieved data.
+   * @returns Promise<Document[]> - An array of Documents representing the retrieved data.
+   */
   public async load(): Promise<Document[]> {
     if (this.limit > 1000) {
       throw new Error(

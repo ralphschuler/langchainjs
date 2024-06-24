@@ -4,10 +4,14 @@ import {
   CacheGet,
   CacheSet,
   InvalidArgumentError,
-} from "@gomomento/sdk";
+} from "@gomomento/sdk-core";
 
 import { BaseCache, Generation } from "../schema/index.js";
-import { getCacheKey } from "./base.js";
+import {
+  deserializeStoredGeneration,
+  getCacheKey,
+  serializeGeneration,
+} from "./base.js";
 import { ensureCacheExists } from "../util/momento.js";
 
 /**
@@ -38,6 +42,25 @@ export interface MomentoCacheProps {
 /**
  * A cache that uses Momento as the backing store.
  * See https://gomomento.com.
+ * @example
+ * ```typescript
+ * const cache = new MomentoCache({
+ *   client: new CacheClient({
+ *     configuration: Configurations.Laptop.v1(),
+ *     credentialProvider: CredentialProvider.fromEnvironmentVariable({
+ *       environmentVariableName: "MOMENTO_API_KEY",
+ *     }),
+ *     defaultTtlSeconds: 60 * 60 * 24, // Cache TTL set to 24 hours.
+ *   }),
+ *   cacheName: "langchain",
+ * });
+ * // Initialize the OpenAI model with Momento cache for caching responses
+ * const model = new ChatOpenAI({
+ *   cache,
+ * });
+ * await model.invoke("How are you today?");
+ * const cachedValues = await cache.lookup("How are you today?", "llmKey");
+ * ```
  */
 export class MomentoCache extends BaseCache {
   private client: ICacheClient;
@@ -103,7 +126,11 @@ export class MomentoCache extends BaseCache {
 
     if (getResponse instanceof CacheGet.Hit) {
       const value = getResponse.valueString();
-      return JSON.parse(value);
+      const parsedValue = JSON.parse(value);
+      if (!Array.isArray(parsedValue)) {
+        return null;
+      }
+      return JSON.parse(value).map(deserializeStoredGeneration);
     } else if (getResponse instanceof CacheGet.Miss) {
       return null;
     } else if (getResponse instanceof CacheGet.Error) {
@@ -131,7 +158,7 @@ export class MomentoCache extends BaseCache {
     const setResponse = await this.client.set(
       this.cacheName,
       key,
-      JSON.stringify(value),
+      JSON.stringify(value.map(serializeGeneration)),
       { ttl: this.ttlSeconds }
     );
 

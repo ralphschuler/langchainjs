@@ -25,16 +25,17 @@ test("Test Directory loader", async () => {
       ".txt": (p) => new TextLoader(p),
       ".json": (p) => new JSONLoader(p),
     },
-    true,
+    false,
     UnknownHandling.Ignore
   );
   const docs = await loader.load();
-  expect(docs.length).toBe(122);
+  expect(docs.length).toBe(123);
   expect(docs.map((d) => d.metadata.source).sort()).toEqual([
     // PDF
     ...Array.from({ length: 15 }, (_) =>
       path.resolve(directoryPath, "1706.03762.pdf")
     ),
+    path.resolve(directoryPath, "Jacob_Lee_Resume_2023.pdf"),
     // CSV
     ...Array.from({ length: 32 }, (_) =>
       path.resolve(

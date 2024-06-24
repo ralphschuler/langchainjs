@@ -2,6 +2,10 @@ import { getEnvironmentVariable } from "../../util/env.js";
 import { Document } from "../../document.js";
 import { BaseDocumentLoader } from "../base.js";
 
+/**
+ * Interface representing the parameters for the SerpAPI loader. It
+ * includes properties such as the search query and the API key.
+ */
 interface SerpAPIParameters {
   /**
    * Search Query
@@ -10,6 +14,15 @@ interface SerpAPIParameters {
   apiKey?: string;
 }
 
+/**
+ * Class representing a document loader for loading search results from
+ * the SerpAPI. It extends the BaseDocumentLoader class.
+ * @example
+ * ```typescript
+ * const loader = new SerpAPILoader({ q: "{query}", apiKey: "{apiKey}" });
+ * const docs = await loader.load();
+ * ```
+ */
 export class SerpAPILoader extends BaseDocumentLoader {
   private apiKey: string;
 

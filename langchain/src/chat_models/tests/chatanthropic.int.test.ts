@@ -1,3 +1,5 @@
+/* eslint-disable no-process-env */
+
 import { expect, test } from "@jest/globals";
 import { HUMAN_PROMPT } from "@anthropic-ai/sdk";
 import { ChatMessage, HumanMessage } from "../../schema/index.js";
@@ -35,6 +37,27 @@ test("Test ChatAnthropic Generate", async () => {
   console.log({ res });
 });
 
+test("Test ChatAnthropic Generate w/ ClientOptions", async () => {
+  const chat = new ChatAnthropic({
+    modelName: "claude-instant-v1",
+    clientOptions: {
+      defaultHeaders: {
+        "Helicone-Auth": "HELICONE_API_KEY",
+      },
+    },
+  });
+  const message = new HumanMessage("Hello!");
+  const res = await chat.generate([[message], [message]]);
+  expect(res.generations.length).toBe(2);
+  for (const generation of res.generations) {
+    expect(generation.length).toBe(1);
+    for (const message of generation) {
+      console.log(message.text);
+    }
+  }
+  console.log({ res });
+});
+
 test("Test ChatAnthropic Generate with a signal in call options", async () => {
   const chat = new ChatAnthropic({
     modelName: "claude-instant-v1",
@@ -49,7 +72,7 @@ test("Test ChatAnthropic Generate with a signal in call options", async () => {
     });
     setTimeout(() => {
       controller.abort();
-    }, 500);
+    }, 1000);
     return res;
   }).rejects.toThrow();
 }, 10000);
@@ -144,7 +167,7 @@ test("ChatAnthropic, docs, prompt templates", async () => {
     "You are a helpful assistant that translates {input_language} to {output_language}."
   );
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     new SystemMessagePromptTemplate(systemPrompt),
     HumanMessagePromptTemplate.fromTemplate("{text}"),
   ]);
@@ -166,7 +189,7 @@ test("ChatAnthropic, longer chain of messages", async () => {
     temperature: 0,
   });
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     HumanMessagePromptTemplate.fromTemplate(`Hi, my name is Joe!`),
     AIMessagePromptTemplate.fromTemplate(`Nice to meet you, Joe!`),
     HumanMessagePromptTemplate.fromTemplate("{text}"),
@@ -199,7 +222,7 @@ test("ChatAnthropic, Claude V2", async () => {
     temperature: 0,
   });
 
-  const chatPrompt = ChatPromptTemplate.fromPromptMessages([
+  const chatPrompt = ChatPromptTemplate.fromMessages([
     HumanMessagePromptTemplate.fromTemplate(`Hi, my name is Joe!`),
     AIMessagePromptTemplate.fromTemplate(`Nice to meet you, Joe!`),
     HumanMessagePromptTemplate.fromTemplate("{text}"),
@@ -241,7 +264,7 @@ test("Test ChatAnthropic stream method", async () => {
 test("Test ChatAnthropic stream method with abort", async () => {
   await expect(async () => {
     const model = new ChatAnthropic({
-      maxTokensToSample: 50,
+      maxTokensToSample: 500,
       modelName: "claude-instant-v1",
     });
     const stream = await model.stream(
@@ -272,4 +295,19 @@ test("Test ChatAnthropic stream method with early break", async () => {
       break;
     }
   }
+});
+
+test("Test ChatAnthropic headers passed through", async () => {
+  const chat = new ChatAnthropic({
+    modelName: "claude-instant-v1",
+    anthropicApiKey: "NOT_REAL",
+    invocationKwargs: {
+      headers: {
+        "X-Api-Key": process.env.ANTHROPIC_API_KEY,
+      },
+    },
+  });
+  const message = new HumanMessage("Hello!");
+  const res = await chat.call([message]);
+  console.log({ res });
 });

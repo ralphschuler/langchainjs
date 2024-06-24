@@ -7,6 +7,12 @@ import { VectorStore } from "./base.js";
 import { Document } from "../document.js";
 import { getEnvironmentVariable } from "../util/env.js";
 
+/**
+ * Interface for the arguments that can be passed to the
+ * `QdrantVectorStore` constructor. It includes options for specifying a
+ * `QdrantClient` instance, the URL and API key for a Qdrant database, and
+ * the name and configuration for a collection.
+ */
 export interface QdrantLibArgs {
   client?: QdrantClient;
   url?: string;
@@ -15,6 +21,11 @@ export interface QdrantLibArgs {
   collectionConfig?: QdrantSchemas["CreateCollection"];
 }
 
+/**
+ * Type for the response returned by a search operation in the Qdrant
+ * database. It includes the score and payload (metadata and content) for
+ * each point (document) in the search results.
+ */
 type QdrantSearchResponse = QdrantSchemas["ScoredPoint"] & {
   payload: {
     metadata: object;
@@ -22,6 +33,12 @@ type QdrantSearchResponse = QdrantSchemas["ScoredPoint"] & {
   };
 };
 
+/**
+ * Class that extends the `VectorStore` base class to interact with a
+ * Qdrant database. It includes methods for adding documents and vectors
+ * to the Qdrant database, searching for similar vectors, and ensuring the
+ * existence of a collection in the database.
+ */
 export class QdrantVectorStore extends VectorStore {
   get lc_secrets(): { [key: string]: string } {
     return {
@@ -34,7 +51,7 @@ export class QdrantVectorStore extends VectorStore {
 
   collectionName: string;
 
-  collectionConfig: QdrantSchemas["CreateCollection"];
+  collectionConfig?: QdrantSchemas["CreateCollection"];
 
   _vectorstoreType(): string {
     return "qdrant";
@@ -59,14 +76,16 @@ export class QdrantVectorStore extends VectorStore {
 
     this.collectionName = args.collectionName ?? "documents";
 
-    this.collectionConfig = args.collectionConfig ?? {
-      vectors: {
-        size: 1536,
-        distance: "Cosine",
-      },
-    };
+    this.collectionConfig = args.collectionConfig;
   }
 
+  /**
+   * Method to add documents to the Qdrant database. It generates vectors
+   * from the documents using the `Embeddings` instance and then adds the
+   * vectors to the database.
+   * @param documents Array of `Document` instances to be added to the Qdrant database.
+   * @returns Promise that resolves when the documents have been added to the database.
+   */
   async addDocuments(documents: Document[]): Promise<void> {
     const texts = documents.map(({ pageContent }) => pageContent);
     await this.addVectors(
@@ -75,6 +94,14 @@ export class QdrantVectorStore extends VectorStore {
     );
   }
 
+  /**
+   * Method to add vectors to the Qdrant database. Each vector is associated
+   * with a document, which is stored as the payload for a point in the
+   * database.
+   * @param vectors Array of vectors to be added to the Qdrant database.
+   * @param documents Array of `Document` instances associated with the vectors.
+   * @returns Promise that resolves when the vectors have been added to the database.
+   */
   async addVectors(vectors: number[][], documents: Document[]): Promise<void> {
     if (vectors.length === 0) {
       return;
@@ -91,12 +118,31 @@ export class QdrantVectorStore extends VectorStore {
       },
     }));
 
-    await this.client.upsert(this.collectionName, {
-      wait: true,
-      points,
-    });
+    try {
+      await this.client.upsert(this.collectionName, {
+        wait: true,
+        points,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (e: any) {
+      const error = new Error(
+        `${e?.status ?? "Undefined error code"} ${e?.message}: ${
+          e?.data?.status?.error
+        }`
+      );
+      throw error;
+    }
   }
 
+  /**
+   * Method to search for vectors in the Qdrant database that are similar to
+   * a given query vector. The search results include the score and payload
+   * (metadata and content) for each similar vector.
+   * @param query Query vector to search for similar vectors in the Qdrant database.
+   * @param k Optional number of similar vectors to return. If not specified, all similar vectors are returned.
+   * @param filter Optional filter to apply to the search results.
+   * @returns Promise that resolves with an array of tuples, where each tuple includes a `Document` instance and a score for a similar vector.
+   */
   async similaritySearchVectorWithScore(
     query: number[],
     k?: number,
@@ -127,6 +173,11 @@ export class QdrantVectorStore extends VectorStore {
     return result;
   }
 
+  /**
+   * Method to ensure the existence of a collection in the Qdrant database.
+   * If the collection does not exist, it is created.
+   * @returns Promise that resolves when the existence of the collection has been ensured.
+   */
   async ensureCollection() {
     const response = await this.client.getCollections();
 
@@ -135,13 +186,26 @@ export class QdrantVectorStore extends VectorStore {
     );
 
     if (!collectionNames.includes(this.collectionName)) {
-      await this.client.createCollection(
-        this.collectionName,
-        this.collectionConfig
-      );
+      const collectionConfig = this.collectionConfig ?? {
+        vectors: {
+          size: (await this.embeddings.embedQuery("test")).length,
+          distance: "Cosine",
+        },
+      };
+      await this.client.createCollection(this.collectionName, collectionConfig);
     }
   }
 
+  /**
+   * Static method to create a `QdrantVectorStore` instance from texts. Each
+   * text is associated with metadata and converted to a `Document`
+   * instance, which is then added to the Qdrant database.
+   * @param texts Array of texts to be converted to `Document` instances and added to the Qdrant database.
+   * @param metadatas Array or single object of metadata to be associated with the texts.
+   * @param embeddings `Embeddings` instance used to generate vectors from the texts.
+   * @param dbConfig `QdrantLibArgs` instance specifying the configuration for the Qdrant database.
+   * @returns Promise that resolves with a new `QdrantVectorStore` instance.
+   */
   static async fromTexts(
     texts: string[],
     metadatas: object[] | object,
@@ -160,6 +224,14 @@ export class QdrantVectorStore extends VectorStore {
     return QdrantVectorStore.fromDocuments(docs, embeddings, dbConfig);
   }
 
+  /**
+   * Static method to create a `QdrantVectorStore` instance from `Document`
+   * instances. The documents are added to the Qdrant database.
+   * @param docs Array of `Document` instances to be added to the Qdrant database.
+   * @param embeddings `Embeddings` instance used to generate vectors from the documents.
+   * @param dbConfig `QdrantLibArgs` instance specifying the configuration for the Qdrant database.
+   * @returns Promise that resolves with a new `QdrantVectorStore` instance.
+   */
   static async fromDocuments(
     docs: Document[],
     embeddings: Embeddings,
@@ -170,6 +242,13 @@ export class QdrantVectorStore extends VectorStore {
     return instance;
   }
 
+  /**
+   * Static method to create a `QdrantVectorStore` instance from an existing
+   * collection in the Qdrant database.
+   * @param embeddings `Embeddings` instance used to generate vectors from the documents in the collection.
+   * @param dbConfig `QdrantLibArgs` instance specifying the configuration for the Qdrant database.
+   * @returns Promise that resolves with a new `QdrantVectorStore` instance.
+   */
   static async fromExistingCollection(
     embeddings: Embeddings,
     dbConfig: QdrantLibArgs

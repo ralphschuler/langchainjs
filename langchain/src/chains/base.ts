@@ -8,7 +8,7 @@ import {
 } from "../callbacks/manager.js";
 import { SerializedBaseChain } from "./serde.js";
 import { BaseLangChain, BaseLangChainParams } from "../base_language/index.js";
-import { RunnableConfig } from "../schema/runnable.js";
+import { RunnableConfig } from "../schema/runnable/config.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type LoadValues = Record<string, any>;
@@ -73,8 +73,40 @@ export abstract class BaseChain<
     return valuesForMemory;
   }
 
+  /**
+   * Invoke the chain with the provided input and returns the output.
+   * @param input Input values for the chain run.
+   * @param config Optional configuration for the Runnable.
+   * @returns Promise that resolves with the output of the chain run.
+   */
   async invoke(input: RunInput, config?: RunnableConfig): Promise<RunOutput> {
     return this.call(input, config);
+  }
+
+  private _validateOutputs(outputs: Record<string, unknown>): void {
+    const missingKeys = this.outputKeys.filter((k) => !(k in outputs));
+    if (missingKeys.length) {
+      throw new Error(
+        `Missing output keys: ${missingKeys.join(
+          ", "
+        )} from chain ${this._chainType()}`
+      );
+    }
+  }
+
+  async prepOutputs(
+    inputs: Record<string, unknown>,
+    outputs: Record<string, unknown>,
+    returnOnlyOutputs = false
+  ) {
+    this._validateOutputs(outputs);
+    if (this.memory) {
+      await this.memory.saveContext(inputs, outputs);
+    }
+    if (returnOnlyOutputs) {
+      return outputs;
+    }
+    return { ...inputs, ...outputs };
   }
 
   /**
@@ -171,7 +203,12 @@ export abstract class BaseChain<
     );
     const runManager = await callbackManager_?.handleChainStart(
       this.toJSON(),
-      fullValues
+      fullValues,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      parsedConfig.runName
     );
     let outputValues: RunOutput;
     try {

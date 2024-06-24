@@ -20,6 +20,12 @@ import {
   mapStoredMessagesToChatMessages,
 } from "./utils.js";
 
+/**
+ * Interface defining the fields required to create an instance of
+ * `DynamoDBChatMessageHistory`. It includes the DynamoDB table name,
+ * session ID, partition key, sort key, message attribute name, and
+ * DynamoDB client configuration.
+ */
 export interface DynamoDBChatMessageHistoryFields {
   tableName: string;
   sessionId: string;
@@ -27,8 +33,13 @@ export interface DynamoDBChatMessageHistoryFields {
   sortKey?: string;
   messageAttributeName?: string;
   config?: DynamoDBClientConfig;
+  key?: Record<string, AttributeValue>;
 }
 
+/**
+ * Interface defining the structure of a chat message as it is stored in
+ * DynamoDB.
+ */
 interface DynamoDBSerializedChatMessage {
   M: {
     type: {
@@ -43,6 +54,11 @@ interface DynamoDBSerializedChatMessage {
   };
 }
 
+/**
+ * Class providing methods to interact with a DynamoDB table to store and
+ * retrieve chat messages. It extends the `BaseListChatMessageHistory`
+ * class.
+ */
 export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
   lc_namespace = ["langchain", "stores", "message", "dynamodb"];
 
@@ -66,7 +82,7 @@ export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
 
   private messageAttributeName = "messages";
 
-  private dynamoKey: Record<string, AttributeValue>;
+  private dynamoKey: Record<string, AttributeValue> = {};
 
   constructor({
     tableName,
@@ -75,8 +91,10 @@ export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
     sortKey,
     messageAttributeName,
     config,
+    key = {},
   }: DynamoDBChatMessageHistoryFields) {
     super();
+
     this.tableName = tableName;
     this.sessionId = sessionId;
     this.client = new DynamoDBClient(config ?? {});
@@ -84,14 +102,22 @@ export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
     this.sortKey = sortKey;
     this.messageAttributeName =
       messageAttributeName ?? this.messageAttributeName;
+    this.dynamoKey = key;
 
-    this.dynamoKey = {};
-    this.dynamoKey[this.partitionKey] = { S: this.sessionId };
-    if (this.sortKey) {
-      this.dynamoKey[this.sortKey] = { S: this.sortKey };
+    // override dynamoKey with partition key and sort key when key not specified
+    if (Object.keys(this.dynamoKey).length === 0) {
+      this.dynamoKey[this.partitionKey] = { S: this.sessionId };
+      if (this.sortKey) {
+        this.dynamoKey[this.sortKey] = { S: this.sortKey };
+      }
     }
   }
 
+  /**
+   * Retrieves all messages from the DynamoDB table and returns them as an
+   * array of `BaseMessage` instances.
+   * @returns Array of stored messages
+   */
   async getMessages(): Promise<BaseMessage[]> {
     const params: GetItemCommandInput = {
       TableName: this.tableName,
@@ -117,6 +143,9 @@ export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
     return mapStoredMessagesToChatMessages(messages);
   }
 
+  /**
+   * Deletes all messages from the DynamoDB table.
+   */
   async clear(): Promise<void> {
     const params: DeleteItemCommandInput = {
       TableName: this.tableName,
@@ -125,6 +154,10 @@ export class DynamoDBChatMessageHistory extends BaseListChatMessageHistory {
     await this.client.send(new DeleteItemCommand(params));
   }
 
+  /**
+   * Adds a new message to the DynamoDB table.
+   * @param message The message to be added to the DynamoDB table.
+   */
   async addMessage(message: BaseMessage) {
     const messages = mapChatMessagesToStoredMessages([message]);
 

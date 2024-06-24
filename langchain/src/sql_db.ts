@@ -12,8 +12,22 @@ import {
 } from "./util/sql_utils.js";
 import { Serializable } from "./load/serializable.js";
 
-export { SqlDatabaseDataSourceParams, SqlDatabaseOptionsParams };
+export type { SqlDatabaseDataSourceParams, SqlDatabaseOptionsParams };
 
+/**
+ * Class that represents a SQL database in the LangChain framework.
+ *
+ * @security **Security Notice**
+ * This class generates SQL queries for the given database.
+ * The SQLDatabase class provides a getTableInfo method that can be used
+ * to get column information as well as sample data from the table.
+ * To mitigate risk of leaking sensitive data, limit permissions
+ * to read and scope to the tables that are needed.
+ * Optionally, use the includesTables or ignoreTables class parameters
+ * to limit which tables can/cannot be accessed.
+ *
+ * @link See https://js.langchain.com/docs/security for more information.
+ */
 export class SqlDatabase
   extends Serializable
   implements SqlDatabaseOptionsParams, SqlDatabaseDataSourceParams
@@ -35,6 +49,8 @@ export class SqlDatabase
   ignoreTables: Array<string> = [];
 
   sampleRowsInTableInfo = 3;
+
+  customDescription?: Record<string, string>;
 
   protected constructor(fields: SqlDatabaseDataSourceParams) {
     super(...arguments);
@@ -58,6 +74,13 @@ export class SqlDatabase
     }
     sqlDatabase.allTables = await getTableAndColumnsName(
       sqlDatabase.appDataSource
+    );
+    sqlDatabase.customDescription = Object.fromEntries(
+      Object.entries(fields?.customDescription ?? {}).filter(([key, _]) =>
+        sqlDatabase.allTables
+          .map((table: SqlTable) => table.tableName)
+          .includes(key)
+      )
     );
     verifyIncludeTablesExistInDatabase(
       sqlDatabase.allTables,
@@ -119,7 +142,8 @@ export class SqlDatabase
     return generateTableInfoFromTables(
       selectedTables,
       this.appDataSource,
-      this.sampleRowsInTableInfo
+      this.sampleRowsInTableInfo,
+      this.customDescription
     );
   }
 

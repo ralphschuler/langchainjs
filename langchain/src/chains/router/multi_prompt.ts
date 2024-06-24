@@ -11,6 +11,30 @@ import { ConversationChain } from "../../chains/conversation.js";
 import { zipEntries } from "./utils.js";
 import { RouterOutputParser } from "../../output_parsers/router.js";
 
+/**
+ * A class that represents a multi-prompt chain in the LangChain
+ * framework. It extends the MultiRouteChain class and provides additional
+ * functionality specific to multi-prompt chains.
+ * @example
+ * ```typescript
+ * const multiPromptChain = MultiPromptChain.fromLLMAndPrompts(new ChatOpenAI(), {
+ *   promptNames: ["physics", "math", "history"],
+ *   promptDescriptions: [
+ *     "Good for answering questions about physics",
+ *     "Good for answering math questions",
+ *     "Good for answering questions about history",
+ *   ],
+ *   promptTemplates: [
+ *     `You are a very smart physics professor. Here is a question:\n{input}\n`,
+ *     `You are a very good mathematician. Here is a question:\n{input}\n`,
+ *     `You are a very smart history professor. Here is a question:\n{input}\n`,
+ *   ],
+ * });
+ * const result = await multiPromptChain.call({
+ *   input: "What is the speed of light?",
+ * });
+ * ```
+ */
 export class MultiPromptChain extends MultiRouteChain {
   /**
    * @deprecated Use `fromLLMAndPrompts` instead
@@ -32,6 +56,20 @@ export class MultiPromptChain extends MultiRouteChain {
     });
   }
 
+  /**
+   * A static method that creates an instance of MultiPromptChain from a
+   * BaseLanguageModel and a set of prompts. It takes in optional parameters
+   * for the default chain and additional options.
+   * @param llm A BaseLanguageModel instance.
+   * @param promptNames An array of prompt names.
+   * @param promptDescriptions An array of prompt descriptions.
+   * @param promptTemplates An array of prompt templates.
+   * @param defaultChain An optional BaseChain instance to be used as the default chain.
+   * @param llmChainOpts Optional parameters for the LLMChainInput, excluding 'llm' and 'prompt'.
+   * @param conversationChainOpts Optional parameters for the LLMChainInput, excluding 'llm' and 'outputKey'.
+   * @param multiRouteChainOpts Optional parameters for the MultiRouteChainInput, excluding 'defaultChain'.
+   * @returns An instance of MultiPromptChain.
+   */
   static fromLLMAndPrompts(
     llm: BaseLanguageModel,
     {
